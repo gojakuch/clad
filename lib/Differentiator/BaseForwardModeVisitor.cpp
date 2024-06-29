@@ -1489,17 +1489,93 @@ BaseForwardModeVisitor::DifferentiateVarDecl(const VarDecl* VD,
       initDiff = StmtDiff(Clone(init));
   }
 
+  // Check if it's a lambda declaration. For lambda declarations we don't create a new variable for derivative.
+  QualType QT = VD->getType();
+  if (QT->isPointerType())
+    QT = QT->getPointeeType();
+  bool isLambda = false;
+  if (auto RD = QT->getAsCXXRecordDecl())
+    isLambda = RD->isLambda();
+
   // Here we are assuming that derived type and the original type are same.
   // This may not necessarily be true in the future.
   VarDecl* VDClone =
-      BuildVarDecl(VD->getType(), VD->getNameAsString(), initDiff.getExpr(),
+      BuildVarDecl(initDiff.getExpr()->getType(), VD->getNameAsString(), initDiff.getExpr(),
                    VD->isDirectInit(), nullptr, VD->getInitStyle());
   // FIXME: Create unique identifier for derivative.
-  VarDecl* VDDerived = BuildVarDecl(
-      VD->getType(), "_d_" + VD->getNameAsString(), initDiff.getExpr_dx(),
-      VD->isDirectInit(), nullptr, VD->getInitStyle());
-  m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
+  VarDecl* VDDerived = nullptr;
+  if (!isLambda) {
+    VDDerived = BuildVarDecl(
+        VD->getType(), "_d_" + VD->getNameAsString(), initDiff.getExpr_dx(),
+        VD->isDirectInit(), nullptr, VD->getInitStyle());
+    m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
+  } else { // isLambda
+    // We must preserve the original name in the copy.
+    VDClone->setDeclName(VD->getDeclName());
+  }
   return DeclDiff<VarDecl>(VDClone, VDDerived);
+}
+
+StmtDiff BaseForwardModeVisitor::VisitLambdaExpr(const LambdaExpr* LE) {
+  llvm::errs() << "\n\nvisited?\n";
+  LambdaIntroducer Intro;
+  Intro.Default = LE->getCaptureDefault();
+  Intro.Range.setBegin(LE->getBeginLoc());
+  Intro.Range.setEnd(LE->getEndLoc());
+  AttributeFactory AttrFactory;
+  const DeclSpec DS(AttrFactory);
+  Declarator D(DS,
+               CLAD_COMPAT_CLANG15_Declarator_DeclarationAttrs_ExtraParam
+               CLAD_COMPAT_CLANG12_Declarator_LambdaExpr);
+#if CLANG_VERSION_MAJOR > 16
+  beginScope(clang::Scope::LambdaScope | clang::Scope::DeclScope |
+                clang::Scope::FunctionDeclarationScope |
+                clang::Scope::FunctionPrototypeScope);
+#endif // CLANG_VERSION_MAJOR
+  m_Sema.PushLambdaScope();
+  m_Sema.getCurLambda()->ExplicitParams = LE->hasExplicitParameters();
+#if CLANG_VERSION_MAJOR > 16
+  m_Sema.ActOnLambdaExpressionAfterIntroducer(Intro, getCurrentScope());
+
+  m_Sema.ActOnLambdaClosureParameters(getCurrentScope(), /*ParamInfo=*/{});
+#else
+  llvm::errs() << "scope: " << getCurrentScope() << '\n';
+  auto CallOperator = LE->getCallOperator();
+  // for (unsigned p = 0, NumParams = CallOperator->getNumParams(); p < NumParams; ++p) {
+  //   ParmVarDecl *Param = CallOperator->getParamDecl(p);
+  //   Param->print(llvm::errs()); llvm::errs() << '\n';
+ 
+  //    // If this has an identifier, add it to the scope stack.
+  //   m_Sema.CheckShadow(getCurrentScope(), Param);
+  //   m_Sema.PushOnScopeChains(Param, getCurrentScope());
+  // }
+  // m_Sema.addLambdaParameters({}, LE->getCallOperator(), getCurrentScope());
+#endif // CLANG_VERSION_MAJOR
+
+  beginScope(clang::Scope::BlockScope | clang::Scope::FnScope |
+                clang::Scope::DeclScope | clang::Scope::CompoundStmtScope);
+  m_Sema.ActOnStartOfLambdaDefinition(Intro, D,
+                clad_compat::Sema_ActOnStartOfLambdaDefinition_ScopeOrDeclSpec(getCurrentScope(), DS));
+#if CLANG_VERSION_MAJOR > 16
+  endScope();
+#endif // CLANG_VERSION_MAJOR
+
+  auto* body = dyn_cast<CompoundStmt>(Clone(LE->getBody()));
+  clang::Expr* modLambda =
+      m_Sema.ActOnLambdaExpr(
+            noLoc,
+            body /*,*/
+                CLAD_COMPAT_CLANG17_ActOnLambdaExpr_getCurrentScope_ExtraParam(
+                    (*this)))
+          .get();
+  endScope();
+  llvm::errs() << "visited!\n\n";
+
+  modLambda->dump();
+  llvm::errs() << "\n\n";
+  LE->dump();
+
+  return StmtDiff(modLambda, nullptr);
 }
 
 StmtDiff BaseForwardModeVisitor::VisitDeclStmt(const DeclStmt* DS) {
@@ -1519,14 +1595,18 @@ StmtDiff BaseForwardModeVisitor::VisitDeclStmt(const DeclStmt* DS) {
       QT = QT->getPointeeType();
     auto* typeDecl = QT->getAsCXXRecordDecl();
     // For lambda functions, we should also simply copy the original lambda. The
-    // differentiation of lambdas is happening in the `VisitCallExpr`. For now,
-    // only the declarations with lambda expressions without captures are
-    // supported.
+    // differentiation of lambdas is happening in the `VisitCallExpr`.
     if (typeDecl && (clad::utils::hasNonDifferentiableAttribute(typeDecl) ||
                      typeDecl->isLambda())) {
       for (auto* D : DS->decls()) {
         if (auto* VD = dyn_cast<VarDecl>(D))
-          decls.push_back(VD);
+          if (typeDecl->isLambda()) {
+            VD->print(llvm::errs());
+            auto newDecl = DifferentiateVarDecl(VD).getDecl();
+            llvm::errs() << "after vardecl diff\n";
+            decls.push_back(newDecl);
+          } else
+            decls.push_back(VD);
         else
           diag(DiagnosticsEngine::Warning, D->getEndLoc(),
                "Unsupported declaration");

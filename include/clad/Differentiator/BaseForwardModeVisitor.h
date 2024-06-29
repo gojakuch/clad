@@ -60,6 +60,7 @@ public:
   StmtDiff VisitStringLiteral(const clang::StringLiteral* SL);
   StmtDiff VisitCXXDefaultArgExpr(const clang::CXXDefaultArgExpr* DE);
   StmtDiff VisitDeclRefExpr(const clang::DeclRefExpr* DRE);
+  StmtDiff VisitLambdaExpr(const clang::LambdaExpr* LE);
   StmtDiff VisitDeclStmt(const clang::DeclStmt* DS);
   StmtDiff VisitFloatingLiteral(const clang::FloatingLiteral* FL);
   StmtDiff VisitForStmt(const clang::ForStmt* FS);
