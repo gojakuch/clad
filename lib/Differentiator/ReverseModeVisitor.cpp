@@ -3935,6 +3935,14 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     return {endBlock(direction::forward), endBlock(direction::reverse)};
   }
 
+  StmtDiff ReverseModeVisitor::VisitCXXBindTemporaryExpr(
+    const clang::CXXBindTemporaryExpr* BTE) {
+    // `CXXBindTemporaryExpr` node will be created automatically, if it is
+    // required, by `ActOn`/`Build` Sema functions.
+    StmtDiff BTEDiff = Visit(BTE->getSubExpr(), dfdx());
+    return BTEDiff;
+  }
+
   StmtDiff ReverseModeVisitor::DifferentiateLoopBody(const Stmt* body,
                                                      LoopCounter& loopCounter,
                                                      Stmt* condVarDiff,

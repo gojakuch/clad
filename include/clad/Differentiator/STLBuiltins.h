@@ -451,27 +451,42 @@ void at_pullback(::std::vector<T>* vec,
   (*d_vec)[idx] += d_y;
 }
 
-template <typename T, typename S, typename U>
+template <typename T>
 ::clad::ValueAndAdjoint<::std::vector<T>, ::std::vector<T>>
-constructor_reverse_forw(::clad::ConstructorReverseForwTag<::std::vector<T>>,
-                         S count, U val,
-                         typename ::std::vector<T>::allocator_type alloc,
-                         S d_count, U d_val,
-                         typename ::std::vector<T>::allocator_type d_alloc) {
-  ::std::vector<T> v(count, val);
-  ::std::vector<T> d_v(count, 0);
+constructor_reverse_forw(::clad::ConstructorReverseForwTag<::std::vector<T>>) {
+  ::std::vector<T> v;
+  ::std::vector<T> d_v;
   return {v, d_v};
 }
 
-template <typename T, typename S, typename U>
-void constructor_pullback(::std::vector<T>* v, S count, U val,
-                          typename ::std::vector<T>::allocator_type alloc,
-                          ::std::vector<T>* d_v, S* d_count, U* d_val,
-                          typename ::std::vector<T>::allocator_type* d_alloc) {
-  for (unsigned i = 0; i < count; ++i)
-    *d_val += (*d_v)[i];
-  d_v->clear();
-}
+// template <typename T, typename S, typename U, typename dS, typename dU, typename A, typename dA>
+// ::clad::ValueAndAdjoint<::std::vector<T>, ::std::vector<T>>
+// constructor_reverse_forw(::clad::ConstructorReverseForwTag<::std::vector<T>>,
+//                          S count, U val,
+//                          A alloc,
+//                          dS d_count, dU d_val,
+//                          dA d_alloc) {
+//   ::std::vector<T> v(count, val);
+//   ::std::vector<T> d_v(count, 0);
+//   return {v, d_v};
+// }
+
+
+// template <typename T, typename S, typename U, typename dS, typename dU, typename Alloc, typename dAlloc>
+// void constructor_pullback(::std::vector<T>* v, S count, U val, Alloc alloc,
+//                           ::std::vector<T>* d_v, dS* d_count, dU* d_val,
+//                           dAlloc* d_alloc) {
+//   for (unsigned i = 0; i < count; ++i)
+//     *d_val += (*d_v)[i];
+//   d_v->clear();
+// }
+// template <typename T, typename S, typename U, typename dS, typename dU>
+// void constructor_pullback(::std::vector<T>* v, S count, U val,
+//                           ::std::vector<T>* d_v, dS* d_count, dU* d_val) {
+//   for (unsigned i = 0; i < count; ++i)
+//     *d_val += (*d_v)[i];
+//   d_v->clear();
+// }
 
 template <typename T, typename U, typename dU>
 void assign_pullback(::std::vector<T>* v,
